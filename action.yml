@@ -1,0 +1,85 @@
+name: 'Deploy .NET 5.0 Project'
+description: 'This builds, creates and saves a docker image and deploys a .NET project that follows specific conventions'
+
+inputs:
+  deployment: 
+    description: 'Typically the repo name but not required to be, used as the stem for both the Docker image name and Kubernetes deployment'
+    required: true
+  dockerfile:
+    description: 'Dockerfile location'
+    required: true
+    default: 'Dockerfile'
+  environment-tag:
+    description: 'Tag for the docker image, usually environment'
+    required: true
+  kube-config:
+    description: 'KUBE_CONFIG, encoded in base64'
+    required: true
+  namespace: 
+    description: 'Namespace within the Kubernetes cluster'
+    required: true
+    default: 'marathon'
+  nuget-read-token:
+    description: 'Read-only nuget token, called PACKAGE_READ_GITHUB_TOKEN in Arundo'
+    required: true
+  project:
+    description: 'Name of project, MUST be both .csproj filename and AssemblyName property in that file)'
+    required: true
+  project-path:
+    description: 'Relative path to parent of project, starting from directory in which solution is located'
+    required: true
+    default: 'src'
+  registry:
+    description: 'DOCKER_REGISTRY_SERVER in Arundo'
+    required: true
+  registry-password:
+    description: 'DOCKER_REGISTRY_PASSWORD in Arundo'
+    required: true
+  registry-username:
+    description: 'DOCKER_REGISTRY_USERNAME in Arundo'
+    required: true
+  sha:
+    description: 'GITHUB_SHA variable, with current commit hash'
+    required: true
+    
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout repo
+      uses: actions/checkout@v2
+
+    - name: Install .NET 5.0 latest
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: 5.0.x
+        source-url: https://nuget.pkg.github.com/arundo/index.json
+      env:
+        NUGET_AUTH_TOKEN: ${{inputs.nuget-read-token}}
+
+    - name: publish project
+      run: |
+        cd ${{inputs.project-path}}/${{inputs.project}} 
+        dotnet publish -c release -o ../app
+      shell: bash
+
+    - name: Build and push Docker image to Arundo registry
+      uses: docker/build-push-action@v1
+      with:
+        dockerfile: ${{inputs.dockerfile}}
+        password: ${{ inputs.registry-password }}
+        path: ${{inputs.project-path}}
+        registry: ${{ inputs.registry }}
+        repository: ${{ inputs.deployment }}
+        username: ${{ inputs.registry-username }}
+        tag_with_sha: true
+        tags: {{ inputs.environment-tag }}
+
+    - name: Update cluster deployment with current image
+      run: |
+        echo "${{ inputs.kube-config }}" | base64 --decode > /tmp/config
+        export KUBECONFIG=/tmp/config
+        SHA_LONG="sha-${{ inputs.sha }}"  
+        export SHA_SHORT=${SHA_LONG:0:11}
+        kubectl set image --namespace ${{ inputs.namespace }} deployment/${{ inputs.deployment }} ${{ inputs.deployment }}=${{ inputs.registry }}/${{ inputs.deployment }}:$SHA_SHORT
+      shell: bash
+
