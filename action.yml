@@ -60,6 +60,7 @@ runs:
       run: |
         cd ${{inputs.project-path}}/${{inputs.project}} 
         dotnet publish -c release -o ../app
+        mv ../app/${{ inputs.project}}.dll ../app/Service.dll
       shell: bash
 
     - name: Build and push Docker image to Arundo registry
