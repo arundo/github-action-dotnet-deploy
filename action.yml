@@ -5,10 +5,6 @@ inputs:
   deployment: 
     description: 'Typically the repo name but not required to be, used as the stem for both the Docker image name and Kubernetes deployment'
     required: true
-  dockerfile:
-    description: 'Dockerfile location'
-    required: true
-    default: 'Dockerfile'
   environment-tag:
     description: 'Tag for the docker image, usually environment'
     required: true
@@ -38,10 +34,7 @@ inputs:
   registry-username:
     description: 'DOCKER_REGISTRY_USERNAME in Arundo'
     required: true
-  sha:
-    description: 'GITHUB_SHA variable, with current commit hash'
-    required: true
-    
+
 runs:
   using: "composite"
   steps:
@@ -58,15 +51,16 @@ runs:
 
     - name: publish project
       run: |
+        cp ${{ github.action_path }}/Dockerfile .
+        sed -i 's/Service.dll/${{ inputs.project}}.dll/' ./Dockerfile
         cd ${{inputs.project-path}}/${{inputs.project}} 
         dotnet publish -c release -o ../app
-        mv ../app/${{ inputs.project}}.dll ../app/Service.dll
       shell: bash
 
     - name: Build and push Docker image to Arundo registry
       uses: docker/build-push-action@v1
       with:
-        dockerfile: ${{inputs.dockerfile}}
+        dockerfile: 'Dockerfile'
         password: ${{ inputs.registry-password }}
         path: ${{inputs.project-path}}
         registry: ${{ inputs.registry }}
@@ -79,8 +73,6 @@ runs:
       run: |
         echo "${{ inputs.kube-config }}" | base64 --decode > /tmp/config
         export KUBECONFIG=/tmp/config
-        SHA_LONG="sha-${{ inputs.sha }}"  
-        export SHA_SHORT=${SHA_LONG:0:11}
-        kubectl set image --namespace ${{ inputs.namespace }} deployment/${{ inputs.deployment }} ${{ inputs.deployment }}=${{ inputs.registry }}/${{ inputs.deployment }}:$SHA_SHORT
+        kubectl set image --namespace ${{ inputs.namespace }} deployment/${{ inputs.deployment }} ${{ inputs.deployment }}=${{ inputs.registry }}/${{ inputs.deployment }}:sha-${GITHUB_SHA:0:7}
       shell: bash
 
